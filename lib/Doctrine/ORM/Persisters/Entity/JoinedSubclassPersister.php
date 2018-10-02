@@ -278,11 +278,28 @@ class JoinedSubclassPersister extends AbstractEntityInheritancePersister
         // If the database platform supports FKs, just
         // delete the row from the root table. Cascades do the rest.
         if ($this->platform->supportsForeignKeyConstraints()) {
-            $rootClass = $this->em->getClassMetadata($this->class->rootEntityName);
-            $rootTable = $this->quoteStrategy->getTableName($rootClass, $this->platform);
-            $rootTypes = $this->getClassIdentifiersTypes($rootClass);
+            $rootClass  = $this->em->getClassMetadata($this->class->rootEntityName);
+            $rootTable  = $this->quoteStrategy->getTableName($rootClass, $this->platform);
+            $types      = array_map(function ($identifier) use ($rootClass) {
+                if (isset($rootClass->fieldMappings[$identifier])) {
+                    return $rootClass->fieldMappings[$identifier]['type'];
+                }
 
-            return (bool) $this->conn->delete($rootTable, $id, $rootTypes);
+                $targetMapping = $this->em->getClassMetadata($rootClass->associationMappings[$identifier]['targetEntity']);
+
+                if (isset($targetMapping->fieldMappings[$targetMapping->identifier[0]])) {
+                    return $targetMapping->fieldMappings[$targetMapping->identifier[0]]['type'];
+                }
+
+                if (isset($targetMapping->associationMappings[$targetMapping->identifier[0]])) {
+                    return $targetMapping->associationMappings[$targetMapping->identifier[0]]['type'];
+                }
+
+                throw ORMException::unrecognizedField($targetMapping->identifier[0]);
+
+            }, $rootClass->identifier);
+
+            return (bool) $this->conn->delete($rootTable, $id, $types);
         }
 
         // Delete from all tables individually, starting from this class' table up to the root table.
